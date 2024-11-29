@@ -15,7 +15,7 @@
 - Open the solution in **Visual Studio** and run the **WebAPI** project.
   - In Visual Studio, go to the Run menu and select Start Without Debugging (or make the project as the startup and press Ctrl + F5).
 
-- Ensure that the WebAPI is running and accessible via HTTP (check the output window for the URL).
+- Ensure that the WebAPI is running and accessible via HTTP (check the output window for the URL). If not, reconfigure it by setting it as the startup project and changing the default profile of the Run operation.
 
 ## 3. Run the UI.WebForms Project
 
