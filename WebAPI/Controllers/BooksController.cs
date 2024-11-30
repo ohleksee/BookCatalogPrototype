@@ -14,11 +14,16 @@ namespace WebAPI.Controllers
     {
         private readonly IBookRepository _bookRepository;
         private readonly ICategoryRepository _categoryRepository;
+        private readonly ILogger<BooksController> _logger;
+        private readonly string _requestId;
 
-        public BooksController(IBookRepository bookRepository, ICategoryRepository categoryRepository)
+        public BooksController(IBookRepository bookRepository, ICategoryRepository categoryRepository, ILogger<BooksController> logger,
+                               IHttpContextAccessor httpContextAccessor)
         {
             _bookRepository = bookRepository;
             _categoryRepository = categoryRepository;
+            _logger = logger;
+            _requestId = httpContextAccessor?.HttpContext?.Items["RequestId"]?.ToString() ?? string.Empty;
         }
 
         /// <summary>
@@ -35,27 +40,39 @@ namespace WebAPI.Controllers
                                                   [FromQuery] string searchTerm = "", [FromQuery] string sortColumn = "Title",
                                                   [FromQuery] string sortDirection = "asc")
         {
-            List<Book> books = await _bookRepository.GetBooksPagedAsync(pageNumber, pageSize, searchTerm, sortColumn, sortDirection);
-            var categoriesCache = new Dictionary<int, string>();
-            var bookDtos = books.Select((Book book) =>
+            try
             {
-                if (!categoriesCache.TryGetValue(book.CategoryId, out var categoryName))
-                    categoryName = _categoryRepository.GetCategoryByIdAsync(book.CategoryId).Result?.Name;
-
-                return new BookDto
+                List<Book> books = await _bookRepository.GetBooksPagedAsync(pageNumber, pageSize, searchTerm, sortColumn, sortDirection);
+                var categoriesCache = new Dictionary<int, string>();
+                var bookDtos = books.Select((Book book) =>
                 {
-                    Id = book.Id,
-                    Title = book.Title,
-                    Author = book.Author,
-                    ISBN = book.ISBN,
-                    PublicationYear = book.PublicationYear,
-                    Quantity = book.Quantity,
-                    CategoryId = book.CategoryId,
-                    CategoryName = categoryName
-                };
-            }).ToList();
+                    if (!categoriesCache.TryGetValue(book.CategoryId, out var categoryName))
+                    {
+                        categoryName = _categoryRepository.GetCategoryByIdAsync(book.CategoryId).Result?.Name;
+                        if (categoryName != null)
+                            categoriesCache[book.CategoryId] = categoryName;
+                    }
 
-            return Ok(bookDtos);
+                    return new BookDto
+                    {
+                        Id = book.Id,
+                        Title = book.Title,
+                        Author = book.Author,
+                        ISBN = book.ISBN,
+                        PublicationYear = book.PublicationYear,
+                        Quantity = book.Quantity,
+                        CategoryId = book.CategoryId,
+                        CategoryName = categoryName
+                    };
+                }).ToList();
+
+                return Ok(bookDtos);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "An error occurred while retrieving books.");
+                return StatusCode(500, "Internal server error");
+            }
         }
 
         /// <summary>
@@ -66,23 +83,34 @@ namespace WebAPI.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetBookById(int id)
         {
-            Book? book = await _bookRepository.GetBookByIdAsync(id);
-            if (book == null)
-                return NotFound();
-
-            var bookDto = new BookDto
+            try
             {
-                Id = book.Id,
-                Title = book.Title,
-                Author = book.Author,
-                ISBN = book.ISBN,
-                PublicationYear = book.PublicationYear,
-                Quantity = book.Quantity,
-                CategoryId = book.CategoryId,
-                CategoryName = book.Category.Name
-            };
+                Book? book = await _bookRepository.GetBookByIdAsync(id);
+                if (book == null)
+                {
+                    _logger.LogWarning($"Request ID: {_requestId} - Book with ID {id} not found.");
+                    return NotFound();
+                }
 
-            return Ok(bookDto);
+                var bookDto = new BookDto
+                {
+                    Id = book.Id,
+                    Title = book.Title,
+                    Author = book.Author,
+                    ISBN = book.ISBN,
+                    PublicationYear = book.PublicationYear,
+                    Quantity = book.Quantity,
+                    CategoryId = book.CategoryId,
+                    CategoryName = book.Category.Name
+                };
+
+                return Ok(bookDto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while retrieving book with ID {id}");
+                return StatusCode(500, "Internal server error");
+            }
         }
 
         /// <summary>
@@ -95,19 +123,26 @@ namespace WebAPI.Controllers
         {
             if (bookDto == null)
                 return BadRequest("Book data is required.");
-
-            var book = new Book
+            try
             {
-                Title = bookDto.Title,
-                Author = bookDto.Author,
-                ISBN = bookDto.ISBN,
-                PublicationYear = bookDto.PublicationYear,
-                Quantity = bookDto.Quantity,
-                CategoryId = bookDto.CategoryId
-            };
+                var book = new Book
+                {
+                    Title = bookDto.Title,
+                    Author = bookDto.Author,
+                    ISBN = bookDto.ISBN,
+                    PublicationYear = bookDto.PublicationYear,
+                    Quantity = bookDto.Quantity,
+                    CategoryId = bookDto.CategoryId
+                };
 
-            await _bookRepository.AddBookAsync(book);
-            return Ok();
+                await _bookRepository.AddBookAsync(book);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while adding new book");
+                return StatusCode(500, "Internal server error");
+            }
         }
 
         /// <summary>
@@ -119,21 +154,34 @@ namespace WebAPI.Controllers
         public async Task<IActionResult> UpdateBook(int id, [FromBody] BookDto bookDto)
         {
             if (id != bookDto.Id)
+            {
+                _logger.LogWarning($"Request ID: {_requestId} - Book request id {id} is different from DTO id {bookDto.Id}.");
                 return BadRequest("Book ID mismatch.");
+            }
+            try
+            {
+                var existingBook = await _bookRepository.GetBookByIdAsync(id);
+                if (existingBook == null)
+                {
+                    _logger.LogWarning($"Request ID: {_requestId} - Book with ID {id} not found.");
+                    return NotFound();
+                }
 
-            var existingBook = await _bookRepository.GetBookByIdAsync(id);
-            if (existingBook == null)
-                return NotFound();
+                existingBook.Title = bookDto.Title;
+                existingBook.Author = bookDto.Author;
+                existingBook.ISBN = bookDto.ISBN;
+                existingBook.PublicationYear = bookDto.PublicationYear;
+                existingBook.Quantity = bookDto.Quantity;
+                existingBook.CategoryId = bookDto.CategoryId;
 
-            existingBook.Title = bookDto.Title;
-            existingBook.Author = bookDto.Author;
-            existingBook.ISBN = bookDto.ISBN;
-            existingBook.PublicationYear = bookDto.PublicationYear;
-            existingBook.Quantity = bookDto.Quantity;
-            existingBook.CategoryId = bookDto.CategoryId;
-
-            await _bookRepository.UpdateBookAsync(existingBook);
-            return Ok();
+                await _bookRepository.UpdateBookAsync(existingBook);
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while updating book with ID {id}");
+                return StatusCode(500, "Internal server error");
+            }
         }
 
         /// <summary>
@@ -144,51 +192,23 @@ namespace WebAPI.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteBook(int id)
         {
-            var book = await _bookRepository.GetBookByIdAsync(id);
-            if (book == null)
-                return NotFound();
-
-            await _bookRepository.DeleteBookAsync(id);
-            return NoContent();
-        }
-
-#if DEBUG
-        [HttpPost("addPredefined")]
-        public async Task<IActionResult> AddBookPredefined()
-        {
-            var additionalBooks = new List<BookDto>
+            try
             {
-                // Fiction Books
-                new BookDto { Title = "Catch-22", Author = "Joseph Heller", ISBN = "9781451626650", PublicationYear = 1961, Quantity = 7, CategoryId = 59 },
-                new BookDto { Title = "The Odyssey", Author = "Homer", ISBN = "9780143039952", PublicationYear = -800, Quantity = 9, CategoryId = 59 },
-                new BookDto { Title = "Frankenstein", Author = "Mary Shelley", ISBN = "9780486282114", PublicationYear = 1818, Quantity = 6, CategoryId = 59 },
-                new BookDto { Title = "The Picture of Dorian Gray", Author = "Oscar Wilde", ISBN = "9780141439570", PublicationYear = 1890, Quantity = 5, CategoryId = 59 },
-                new BookDto { Title = "Les Misérables", Author = "Victor Hugo", ISBN = "9780140444308", PublicationYear = 1862, Quantity = 4, CategoryId = 59 },
-
-                // Non-Fiction Books
-                new BookDto { Title = "Astrophysics for People in a Hurry", Author = "Neil deGrasse Tyson", ISBN = "9780393609394", PublicationYear = 2017, Quantity = 8, CategoryId = 60 },
-                new BookDto { Title = "Into the Wild", Author = "Jon Krakauer", ISBN = "9780385486804", PublicationYear = 1996, Quantity = 10, CategoryId = 60 },
-                new BookDto { Title = "The Gene: An Intimate History", Author = "Siddhartha Mukherjee", ISBN = "9781476733531", PublicationYear = 2016, Quantity = 12, CategoryId = 60 },
-                new BookDto { Title = "The Body: A Guide for Occupants", Author = "Bill Bryson", ISBN = "9780385539302", PublicationYear = 2019, Quantity = 6, CategoryId = 60 },
-                new BookDto { Title = "The Power of Habit", Author = "Charles Duhigg", ISBN = "9781400069286", PublicationYear = 2012, Quantity = 9, CategoryId = 60 }
-            };
-
-            foreach (var bookDto in additionalBooks)
-            {
-                var book = new Book
+                var book = await _bookRepository.GetBookByIdAsync(id);
+                if (book == null)
                 {
-                    Title = bookDto.Title,
-                    Author = bookDto.Author,
-                    ISBN = bookDto.ISBN,
-                    PublicationYear = bookDto.PublicationYear,
-                    Quantity = bookDto.Quantity,
-                    CategoryId = bookDto.CategoryId
-                };
-                await _bookRepository.AddBookAsync(book);
-            }
+                    _logger.LogWarning($"Request ID: {_requestId} - Book with ID {id} not found.");
+                    return NotFound();
+                }
 
-            return Ok();
+                await _bookRepository.DeleteBookAsync(id);
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"An error occurred while deleting book with ID {id}");
+                return StatusCode(500, "Internal server error");
+            }
         }
-#endif
     }
 }

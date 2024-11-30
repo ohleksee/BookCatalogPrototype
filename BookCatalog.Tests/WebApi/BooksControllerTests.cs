@@ -1,6 +1,8 @@
 ﻿using BookCatalog.DataAccess.Models;
 using BookCatalog.DataAccess.Repositories.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Models.Contracts;
 using Moq;
 using WebAPI.Controllers;
@@ -17,6 +19,8 @@ namespace BookCatalog.Tests.WebApi
     {
         private Mock<IBookRepository> _mockBookRepository;
         private Mock<ICategoryRepository> _mockCategoryRepository;
+        private Mock<ILogger<BooksController>> _mockLogger;
+        private Mock<IHttpContextAccessor> _mockHttpContextAccessor;
         private BooksController _controller;
 
         [TestInitialize]
@@ -24,8 +28,10 @@ namespace BookCatalog.Tests.WebApi
         {
             _mockBookRepository = new Mock<IBookRepository>();
             _mockCategoryRepository = new Mock<ICategoryRepository>();
+            _mockLogger = new Mock<ILogger<BooksController>>();
+            _mockHttpContextAccessor = new Mock<IHttpContextAccessor>();
 
-            _controller = new BooksController(_mockBookRepository.Object, _mockCategoryRepository.Object);
+            _controller = new BooksController(_mockBookRepository.Object, _mockCategoryRepository.Object, _mockLogger.Object, _mockHttpContextAccessor.Object);
         }
 
         /// <summary>
