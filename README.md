@@ -1,7 +1,8 @@
 # Library's Book Inventory
 
 ## Task Overview
-Develop a simple web application for managing a library's book inventory targeting the .NET Framework 4.8. The application should allow users to view, add, edit, and delete books.
+Develop a simple ASP.NET WebForms application to manage a library's book inventory. The application should allow users to view, add, edit, and delete books.
+Backend operations should utilize the .NET Core Web API and Entity Framework Core.
 
 ## Requirements
 
